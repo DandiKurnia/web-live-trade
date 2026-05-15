@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import init_db, async_session
 from app.mt5_client import mt5_client
 from app.websocket_manager import ws_manager
-from app.routes import health, market, signals, ai, trade_plans
+from app.routes import health, market, signals, ai, trade_plans, agent
 from app.models import MarketTick, Signal, TradePlan
 from app.multi_timeframe_analysis import multi_timeframe_analysis, evaluate_signal_candidate
 from app.confirmation import record_candidate, check_confirmation
@@ -608,6 +608,7 @@ app.include_router(market.router)
 app.include_router(signals.router)
 app.include_router(ai.router)
 app.include_router(trade_plans.router)
+app.include_router(agent.router)
 
 
 @app.websocket("/ws/market")

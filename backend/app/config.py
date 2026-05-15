@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     anthropic_auth_token: str = "sk_9router"
     anthropic_model: str = "claude"
 
+    # Hermes Agent (OpenAI-compatible gateway)
+    hermes_agent_enabled: bool = True
+    hermes_agent_url: str = "http://10.254.200.211:8090"
+    hermes_agent_timeout_seconds: int = 45
+    hermes_agent_fallback_to_direct_ai: bool = True
+    hermes_agent_api_key: str = ""
+
     # Telegram
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
