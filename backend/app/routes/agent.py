@@ -15,6 +15,79 @@ async def get_agent_status() -> Dict[str, Any]:
     return hermes_client.get_status()
 
 
+@router.post("/trade-analysis/mock")
+async def trade_analysis_mock(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Mock trade analysis for testing (returns valid response without calling Hermes).
+    Use this for development when Hermes Agent is not properly configured.
+    """
+    logger.info("Using mock trade analysis response")
+
+    # Extract signal from payload
+    signal_engine = payload.get("signal_engine", {})
+    candidate = signal_engine.get("candidate", "WAIT")
+    confirmed = signal_engine.get("confirmed", False)
+    confidence = signal_engine.get("confidence", 0)
+
+    risk_engine = payload.get("risk_engine", {})
+    risk_allowed = risk_engine.get("allowed", False)
+
+    news_context = payload.get("news_context", {})
+    news_blocked = news_context.get("blocked", False)
+
+    # Determine direction based on signal
+    if not risk_allowed or news_blocked:
+        direction = "WAIT"
+        recommendation = "AVOID"
+        should_create = False
+    elif candidate == "BUY" and confirmed and confidence >= 75:
+        direction = "BUY"
+        recommendation = "VALID_SETUP"
+        should_create = True
+    elif candidate == "SELL" and confirmed and confidence >= 75:
+        direction = "SELL"
+        recommendation = "VALID_SETUP"
+        should_create = True
+    else:
+        direction = "WAIT"
+        recommendation = "WATCH"
+        should_create = False
+
+    # Determine entry price source
+    if direction == "BUY":
+        entry_source = "ASK"
+        entry_price = payload.get("current_price", {}).get("ask")
+    elif direction == "SELL":
+        entry_source = "BID"
+        entry_price = payload.get("current_price", {}).get("bid")
+    else:
+        entry_source = "NONE"
+        entry_price = None
+
+    return {
+        "success": True,
+        "source": "hermes_mock",
+        "final_bias": "BULLISH" if direction == "BUY" else "BEARISH" if direction == "SELL" else "NEUTRAL",
+        "direction": direction,
+        "recommendation": recommendation,
+        "confidence": confidence if direction != "WAIT" else 0,
+        "setup_quality": "GOOD" if direction != "WAIT" else "POOR",
+        "entry_price": entry_price,
+        "entry_price_source": entry_source,
+        "should_create_trade_plan": should_create,
+        "manual_approval_required": True,
+        "summary": f"Mock analysis: {direction} signal with {confidence}% confidence",
+        "entry_reason": f"Signal candidate: {candidate}, Confirmed: {confirmed}, Risk allowed: {risk_allowed}",
+        "risk_warning": "This is a mock response for testing only",
+        "validation": {
+            "risk_engine_respected": risk_allowed,
+            "schema_valid": True,
+            "news_filter_respected": not news_blocked,
+        },
+        "notes": ["Mock response for development/testing"],
+    }
+
+
 @router.post("/trade-analysis")
 async def trade_analysis(payload: Dict[str, Any]) -> Dict[str, Any]:
     """

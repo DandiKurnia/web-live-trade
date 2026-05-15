@@ -93,13 +93,29 @@ class HermesClient:
                 content = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
                 # Parse the JSON response from Hermes
+                # Hermes may return JSON in markdown code block format: ```json\n{...}\n```
                 try:
-                    hermes_response = json.loads(content)
+                    # Try to extract JSON from markdown code block if present
+                    json_str = content
+                    if "```json" in content:
+                        # Extract JSON from markdown code block
+                        start = content.find("```json") + 7
+                        end = content.find("```", start)
+                        if end > start:
+                            json_str = content[start:end].strip()
+                    elif "```" in content:
+                        # Extract from generic code block
+                        start = content.find("```") + 3
+                        end = content.find("```", start)
+                        if end > start:
+                            json_str = content[start:end].strip()
+
+                    hermes_response = json.loads(json_str)
                     hermes_response["source"] = "hermes_agent"
                     self.last_error = None
                     return self._validate_response(hermes_response)
                 except json.JSONDecodeError as e:
-                    error_msg = f"Hermes returned invalid JSON: {e}"
+                    error_msg = f"Hermes returned invalid JSON: {e}. Content: {content[:200]}"
                     self.last_error = error_msg
                     logger.error(error_msg)
                     return self._safe_fallback(error_msg)
@@ -174,7 +190,6 @@ class HermesClient:
             "recommendation",
             "entry_price_source",
             "should_create_trade_plan",
-            "manual_approval_required",
         ]
         for field in required_fields:
             if field not in response:
@@ -199,9 +214,8 @@ class HermesClient:
         elif direction == "WAIT" and entry_source != "NONE":
             errors.append(f"WAIT must use NONE, got {entry_source}")
 
-        # Validate manual_approval_required is always true
-        if response.get("manual_approval_required") is not True:
-            errors.append("manual_approval_required must always be true")
+        # Force manual_approval_required to always be true (safety rule)
+        response["manual_approval_required"] = True
 
         if errors:
             logger.error(f"Hermes response validation failed: {errors}")
