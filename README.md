@@ -1,36 +1,248 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Trade Analysis Dashboard
 
-## Getting Started
+Live market dashboard + trade analysis for a JustMarkets demo account using a MetaTrader 5 bridge.
 
-First, run the development server:
+> **Disclaimer:** This project is for demo/paper trading and educational use only. It is NOT financial advice. Do not use this for real trading without proper risk management and understanding.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Architecture
+
+```
+┌─────────────┐     WebSocket/REST     ┌──────────────┐     MT5 API     ┌─────────────┐
+│   Next.js   │ ◄──────────────────── │   FastAPI    │ ◄────────────── │  MT5        │
+│  Frontend   │                        │   Backend    │                  │  Terminal   │
+│  (port 3000)│                        │  (port 8000) │                  │  (Windows)  │
+└─────────────┘                        └──────┬───────┘                  └─────────────┘
+                                              │
+                                              ▼
+                                       ┌──────────────┐
+                                       │  PostgreSQL  │
+                                       │  (port 5432) │
+                                       └──────────────┘
+                                              │
+                                              ▼
+                                       ┌──────────────┐
+                                       │   pgAdmin    │
+                                       │  (port 5050) │
+                                       └──────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Running Modes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Mode                     | Description                                | Use Case                                             |
+| ------------------------ | ------------------------------------------ | ---------------------------------------------------- |
+| **Local Windows**        | MT5 + Backend run on Windows, DB in Docker | Recommended for development                          |
+| **Database-only Docker** | Only PostgreSQL + pgAdmin in Docker        | When running backend locally                         |
+| **Full Docker**          | All services in Docker                     | Frontend/DB dev (MT5 won't work in Linux containers) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Prerequisites
 
-## Learn More
+### MetaTrader 5 Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. Download MetaTrader 5 from [MetaTrader 5](https://www.metatrader5.com/en/download)
+2. Install and open MetaTrader 5
+3. Create a demo account with **JustMarkets**:
+   - Open MT5 → File → Open an Account
+   - Search for "JustMarkets" or select "JustMarkets-Demo2"
+   - Choose "Open a demo account"
+   - Fill in your details and note your **login number** and **password**
+4. Make sure MT5 is running and logged in before starting the backend
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### System Requirements
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Windows 10/11 (for MT5 terminal)
+- Python 3.10+
+- Node.js 18+
+- Docker & Docker Compose (for database)
 
-## Deploy on Vercel
+## Quick Start
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 1. Start Database (Docker)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+docker compose -f docker-compose.db.yml up -d
+```
+
+This starts:
+
+- PostgreSQL on port 5433
+- pgAdmin on port 5050
+
+### 2. Start Backend (Local Windows)
+
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+Edit `backend/.env` with your MT5 credentials:
+
+```env
+MT5_LOGIN=your_mt5_login_number
+MT5_PASSWORD=your_mt5_password
+MT5_SERVER=JustMarkets-Demo2
+DATABASE_URL=postgresql+asyncpg://tradebot:tradebot_password@localhost:5432/tradebot
+ALLOWED_ORIGINS=http://localhost:3000
+SYMBOLS=XAUUSD,EURUSD,GBPUSD,BTCUSD
+TICK_SAVE_INTERVAL_SECONDS=5
+```
+
+Run the backend:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3. Start Frontend (Local)
+
+```bash
+cd ..
+copy .env.example .env.local
+npm install
+npm run dev
+```
+
+The dashboard will be available at http://localhost:3000
+
+### 4. Full Docker Mode (Alternative)
+
+```bash
+docker compose up -d --build
+```
+
+> **Note:** MT5 connection will NOT work inside Linux Docker containers. The backend will start in degraded mode. Use this only for frontend/database development.
+
+## Accessing pgAdmin
+
+1. Open http://localhost:5050
+2. Login:
+   - Email: `admin@example.com`
+   - Password: `admin123`
+3. Register a new server:
+   - **Name:** tradebot (any name)
+   - **Connection tab:**
+     - Host: `postgres` (if in Docker) or `localhost` (if pgAdmin is local)
+     - Port: `5432`
+     - Database: `tradebot`
+     - Username: `tradebot`
+     - Password: `tradebot_password`
+
+## API Endpoints
+
+| Method | Endpoint                                       | Description                  |
+| ------ | ---------------------------------------------- | ---------------------------- |
+| GET    | `/health`                                      | Health check + MT5 status    |
+| GET    | `/api/price/{symbol}`                          | Current price for a symbol   |
+| GET    | `/api/symbols`                                 | List of configured symbols   |
+| GET    | `/api/candles/{symbol}?timeframe=M1&limit=100` | OHLCV candle data            |
+| GET    | `/api/signals/{symbol}`                        | Trade signal with indicators |
+| WS     | `/ws/market`                                   | Real-time price updates      |
+
+### Testing the API
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Get XAUUSD price
+curl http://localhost:8000/api/price/XAUUSD
+
+# Get signal
+curl http://localhost:8000/api/signals/XAUUSD
+
+# Get candles
+curl http://localhost:8000/api/candles/XAUUSD?timeframe=M5&limit=50
+```
+
+### WebSocket Usage
+
+Connect to `ws://localhost:8000/ws/market` and send:
+
+```json
+{ "action": "subscribe", "symbols": ["XAUUSD", "EURUSD"] }
+```
+
+To unsubscribe:
+
+```json
+{ "action": "unsubscribe", "symbols": ["XAUUSD"] }
+```
+
+## Trade Analysis
+
+The system calculates the following indicators on M5 candles:
+
+- **EMA 20** — Short-term exponential moving average
+- **EMA 50** — Medium-term exponential moving average
+- **RSI 14** — Relative Strength Index
+
+### Signal Strategy
+
+| Signal   | Condition                  |
+| -------- | -------------------------- |
+| **BUY**  | EMA20 > EMA50 AND RSI > 50 |
+| **SELL** | EMA20 < EMA50 AND RSI < 50 |
+| **WAIT** | Mixed or insufficient data |
+
+## Troubleshooting
+
+### MT5 initialize failed
+
+- Make sure MetaTrader 5 is installed and running
+- Check that the MT5 terminal is logged in to your account
+- Verify the MT5 terminal path is accessible
+
+### MT5 login failed
+
+- Double-check `MT5_LOGIN` and `MT5_PASSWORD` in `.env`
+- Verify the server name is exactly `JustMarkets-Demo2`
+- Make sure your demo account is active
+
+### Symbol not found
+
+- Ensure the symbol is available on your broker (e.g., XAUUSD may be listed as XAUUSDm)
+- Check Market Watch in MT5 — right-click → Show All
+
+### No tick data
+
+- The market may be closed (weekends, holidays)
+- Check if MT5 shows prices for the symbol
+
+### WebSocket disconnected
+
+- The frontend will automatically fall back to REST polling every 3 seconds
+- Check that the backend is running on port 8000
+- Check browser console for CORS errors
+
+### PostgreSQL connection failed
+
+- Ensure Docker containers are running: `docker compose -f docker-compose.db.yml ps`
+- Check that port 5432 is not used by another service
+- Verify `DATABASE_URL` in `.env`
+
+### pgAdmin cannot connect to PostgreSQL
+
+- If both are in Docker, use host `postgres` (container name)
+- If pgAdmin is local, use host `localhost`
+- Verify credentials match docker-compose values
+
+### CORS error
+
+- Add your frontend URL to `ALLOWED_ORIGINS` in `backend/.env`
+- Multiple origins: `ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001`
+
+## Roadmap
+
+- [ ] Telegram notification bot
+- [ ] Backtesting engine
+- [ ] Paper trading simulation
+- [ ] Auto order with safety rules
+- [ ] Daily loss limit
+- [ ] Risk management (position sizing, stop loss)
+- [ ] User authentication
+- [ ] Multi-account support
+- [ ] More indicators (MACD, Bollinger Bands)
+- [ ] Price alerts
+- [ ] Trade journal
