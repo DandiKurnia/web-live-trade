@@ -1,7 +1,11 @@
 from typing import Dict, Optional
 from datetime import datetime, timezone, timedelta
 from app.ai_client import ai_client
+from app.hermes_client import hermes_client
 from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 WIB = timezone(timedelta(hours=7))
 
@@ -86,24 +90,64 @@ def build_ai_payload(symbol: str, analysis: Dict, candidate: Dict, spread: float
 
 
 async def run_ai_analysis(symbol: str, analysis: Dict, candidate: Dict, spread: float, tick: Optional[Dict] = None, trigger_type: str = "AUTO") -> Optional[Dict]:
-    if not ai_client.is_available:
+    """
+    Run AI analysis through Hermes Agent if enabled, otherwise use direct AI client.
+
+    Flow:
+    1. If Hermes enabled → send to Hermes Agent (/v1/chat/completions)
+    2. If Hermes fails and fallback enabled → use direct AI client
+    3. If both fail → return None
+    """
+    if not ai_client.is_available and not hermes_client.enabled:
+        logger.warning("Neither AI client nor Hermes Agent is available")
         return None
 
     payload = build_ai_payload(symbol, analysis, candidate, spread, tick)
 
-    result = await ai_client.analyze(payload)
+    # Try Hermes Agent first if enabled
+    if hermes_client.enabled:
+        logger.info(f"Sending AI analysis to Hermes Agent for {symbol}")
+        hermes_result = await hermes_client.trade_analysis(payload)
 
-    if not result:
-        return None
+        # Check if Hermes returned a valid response (not fallback)
+        if hermes_result.get("source") == "hermes_agent" and hermes_result.get("success"):
+            logger.info(f"Hermes Agent analysis successful for {symbol}")
+            return _format_ai_response(symbol, hermes_result, payload, trigger_type, source="hermes_agent")
 
-    response = result["response"]
+        # If Hermes returned fallback but fallback_to_direct_ai is enabled, try direct AI
+        if hermes_result.get("source") in ["direct_ai_fallback", "hermes_safe_fallback"] and hermes_client.fallback_enabled:
+            logger.info(f"Hermes fallback triggered, trying direct AI client for {symbol}")
+            if ai_client.is_available:
+                result = await ai_client.analyze(payload)
+                if result:
+                    return _format_ai_response(symbol, result["response"], payload, trigger_type, source="direct_ai_fallback", raw_response=result["raw_response"])
+
+        # If Hermes failed completely and no fallback
+        if hermes_result.get("source") == "hermes_unavailable":
+            logger.warning(f"Hermes Agent unavailable and fallback disabled for {symbol}")
+            return None
+
+    # If Hermes not enabled, use direct AI client
+    if ai_client.is_available:
+        logger.info(f"Using direct AI client for {symbol}")
+        result = await ai_client.analyze(payload)
+        if result:
+            return _format_ai_response(symbol, result["response"], payload, trigger_type, source="direct_ai", raw_response=result["raw_response"])
+
+    logger.error(f"All AI analysis methods failed for {symbol}")
+    return None
+
+
+def _format_ai_response(symbol: str, response: Dict, payload: Dict, trigger_type: str, source: str = "hermes_agent", raw_response: Optional[Dict] = None) -> Dict:
+    """Format AI response into standard format"""
     return {
         "success": True,
         "symbol": symbol,
         "trigger_type": trigger_type,
-        "ai_bias": response.get("ai_bias", "NEUTRAL"),
+        "ai_source": source,
+        "ai_bias": response.get("ai_bias", response.get("final_bias", "NEUTRAL")),
         "direction": response.get("direction", "WAIT"),
-        "ai_confidence": response.get("ai_confidence", 0),
+        "ai_confidence": response.get("ai_confidence", response.get("confidence", 0)),
         "recommendation": response.get("recommendation", "WAIT"),
         "setup_quality": response.get("setup_quality", "FAIR"),
         "entry_price": response.get("entry_price"),
@@ -119,5 +163,5 @@ async def run_ai_analysis(symbol: str, analysis: Dict, candidate: Dict, spread: 
         "manual_approval_required": response.get("manual_approval_required", True),
         "notes": response.get("notes", []),
         "raw_request_json": payload,
-        "raw_response_json": result["raw_response"],
+        "raw_response_json": raw_response or response,
     }
