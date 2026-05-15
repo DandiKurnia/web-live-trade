@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # AI scheduler
     ai_analysis_auto_enabled: bool = True
-    ai_analysis_allowed_minutes: str = "0,30"
+    ai_analysis_allowed_minutes: str = "0,15,30,45"
     ai_min_confidence_for_valid_setup: int = 70
     ai_manual_trigger_cooldown_seconds: int = 15
 

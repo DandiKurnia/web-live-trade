@@ -2,7 +2,19 @@
   "permissions": {
     "allow": [
       "Bash(npx next *)",
-      "Bash(Select-Object -Last 30)"
+      "Bash(Select-Object -Last 30)",
+      "Bash(Get-ChildItem -Path \"D:\\\\mySelf\\\\project\\\\web-live-trade\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(python -m py_compile app/hermes_client.py app/routes/agent.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl *)",
+      "Bash(python -m json.tool)",
+      "Bash(python -m py_compile app/hermes_client.py)",
+      "Bash(python -m py_compile app/routes/agent.py)",
+      "Bash(git commit -m 'Add Hermes Agent local setup guide *)",
+      "Bash(python -m py_compile app/ai_analysis.py)",
+      "Bash(git commit -m 'Add Hermes Agent AI analysis integration guide *)"
     ]
   }
 }
